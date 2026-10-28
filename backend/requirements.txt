@@ -1,0 +1,10 @@
+fastapi>=0.110
+numpy>=1.26
+scipy>=1.12
+nibabel>=5.2
+pandas>=2.2
+pydantic>=2.6
+python-multipart>=0.0.9
+uvicorn[standard]>=0.29
+pytest>=8.0
+ruff>=0.4

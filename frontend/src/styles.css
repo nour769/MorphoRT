@@ -1,0 +1,287 @@
+:root {
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  color: #172033;
+  background: #f4f6f9;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: #f4f6f9;
+}
+
+button,
+select {
+  font: inherit;
+}
+
+button:focus-visible,
+select:focus-visible {
+  outline: 3px solid #e67e22;
+  outline-offset: 2px;
+}
+
+.app-shell {
+  width: min(100% - 32px, 1120px);
+  margin: 0 auto;
+  padding: 48px 0 24px;
+}
+
+.page-header {
+  margin-bottom: 28px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.brand-mark {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 10px;
+  background: #172b4d;
+  color: #ffb567;
+  font-weight: 800;
+}
+
+.eyebrow {
+  color: #667085;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+h1,
+h2,
+p,
+figure {
+  margin: 0;
+}
+
+h1 {
+  font-size: clamp(30px, 5vw, 42px);
+  letter-spacing: -0.04em;
+}
+
+.page-header > p {
+  max-width: 650px;
+  margin-top: 10px;
+  color: #667085;
+  font-size: 16px;
+  line-height: 1.6;
+}
+
+.workspace {
+  display: grid;
+  grid-template-columns: minmax(240px, 0.75fr) minmax(0, 1.6fr);
+  gap: 20px;
+}
+
+.controls,
+.results,
+.explanation {
+  min-width: 0;
+  padding: 24px;
+  border: 1px solid #e1e5eb;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 8px 24px rgb(23 32 51 / 4%);
+}
+
+.controls,
+.results {
+  display: grid;
+  align-content: start;
+  gap: 24px;
+}
+
+.controls h2,
+.results h2,
+.explanation h2 {
+  margin-bottom: 14px;
+  font-size: 17px;
+}
+
+.operation-list {
+  display: grid;
+  gap: 8px;
+}
+
+.operation-button {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid #e1e5eb;
+  border-radius: 10px;
+  background: #fff;
+  color: #172033;
+  cursor: pointer;
+  text-align: left;
+}
+
+.operation-button:hover {
+  border-color: #e67e22;
+}
+
+.operation-button-selected {
+  border-color: #e67e22;
+  background: #fff8f1;
+}
+
+.operation-button span,
+.size-control > span > span,
+.neighborhood-preview > span {
+  color: #667085;
+  font-size: 12px;
+}
+
+.size-control {
+  display: grid;
+  gap: 10px;
+}
+
+.size-control > span {
+  display: grid;
+  gap: 4px;
+}
+
+.size-control select {
+  width: 100%;
+  min-height: 42px;
+  padding: 8px 10px;
+  border: 1px solid #cfd5df;
+  border-radius: 8px;
+  background: #fff;
+  color: #172033;
+}
+
+.neighborhood-preview {
+  display: grid;
+  justify-items: start;
+  gap: 10px;
+}
+
+.neighborhood-grid {
+  display: grid;
+  width: 84px;
+  aspect-ratio: 1;
+  grid-template-columns: repeat(var(--neighborhood-size, 3), 1fr);
+  gap: 2px;
+}
+
+.neighborhood-pixel {
+  border-radius: 2px;
+  background: #172b4d;
+}
+
+.image-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.image-card {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid #e1e5eb;
+  border-radius: 12px;
+  background: #fbfcfe;
+}
+
+.image-card figcaption {
+  display: grid;
+  gap: 4px;
+}
+
+.image-card figcaption span {
+  color: #667085;
+  font-size: 12px;
+}
+
+.image-grid {
+  display: grid;
+  width: 100%;
+  max-width: 340px;
+  margin: 0 auto;
+  gap: 2px;
+  aspect-ratio: 1;
+  padding: 8px;
+  border-radius: 8px;
+  background: #e8ecf2;
+}
+
+.image-pixel {
+  min-width: 0;
+  border-radius: 1px;
+  background: #fff;
+}
+
+.image-pixel-on {
+  background: #23395d;
+}
+
+.explanation {
+  margin-top: 20px;
+}
+
+.explanation h2 {
+  margin: 8px 0;
+}
+
+.explanation > p {
+  max-width: 760px;
+  color: #465166;
+  line-height: 1.6;
+}
+
+.explanation .boundary-note {
+  margin-top: 10px;
+  color: #667085;
+  font-size: 13px;
+}
+
+footer {
+  padding-top: 20px;
+  color: #667085;
+  font-size: 12px;
+  text-align: center;
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    padding-top: 28px;
+  }
+
+  .workspace {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .controls,
+  .results,
+  .explanation {
+    padding: 18px;
+  }
+
+  .image-pair {
+    grid-template-columns: 1fr;
+  }
+}
