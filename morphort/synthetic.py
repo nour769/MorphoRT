@@ -24,15 +24,11 @@ def create_synthetic_mri(
             "Le volume de démonstration doit mesurer au moins 16 voxels par axe."
         )
 
-    axes = tuple(
-        np.linspace(-1.0, 1.0, size, dtype=np.float32) for size in shape
-    )
+    axes = tuple(np.linspace(-1.0, 1.0, size, dtype=np.float32) for size in shape)
     x, y, z = np.meshgrid(*axes, indexing="ij")
     brain = (x / 0.88) ** 2 + (y / 0.92) ** 2 + (z / 0.86) ** 2 <= 1.0
     tumor = (
-        ((x + 0.13) / 0.20) ** 2
-        + ((y - 0.08) / 0.16) ** 2
-        + ((z + 0.03) / 0.24) ** 2
+        ((x + 0.13) / 0.20) ** 2 + ((y - 0.08) / 0.16) ** 2 + ((z + 0.03) / 0.24) ** 2
         <= 1.0
     ) & brain
 

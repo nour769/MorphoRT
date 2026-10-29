@@ -6,6 +6,8 @@ __pycache__/
 node_modules/
 frontend/dist/
 frontend/.vite/
+data/
+.kaggle/
 .env
 .streamlit/secrets.toml
 *.nii

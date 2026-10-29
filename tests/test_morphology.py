@@ -60,12 +60,8 @@ def test_gradient_and_top_hat_match_definitions(shape: tuple[int, ...]) -> None:
     expected_gradient = sk_morphology.binary_dilation(
         image, footprint=footprint
     ) & ~sk_morphology.binary_erosion(image, footprint=footprint)
-    expected_white = image & ~sk_morphology.binary_opening(
-        image, footprint=footprint
-    )
-    expected_black = sk_morphology.binary_closing(
-        image, footprint=footprint
-    ) & ~image
+    expected_white = image & ~sk_morphology.binary_opening(image, footprint=footprint)
+    expected_black = sk_morphology.binary_closing(image, footprint=footprint) & ~image
 
     np.testing.assert_array_equal(gradient(image, footprint), expected_gradient)
     np.testing.assert_array_equal(top_hat(image, footprint), expected_white)
@@ -80,9 +76,7 @@ def test_structuring_element_uses_physical_voxel_spacing() -> None:
 
     np.testing.assert_array_equal(
         footprint,
-        np.array(
-            [[True], [True], [True]]
-        ),
+        np.array([[True], [True], [True]]),
     )
 
 

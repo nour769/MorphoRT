@@ -4,6 +4,7 @@ import numpy as np
 import streamlit as st
 from streamlit.runtime.uploaded_file_manager import UploadedFile
 
+from morphort.datasets import list_brats_cases, load_brats_case
 from morphort.synthetic import MODALITY_NAMES, create_synthetic_mri
 from morphort.volumes import (
     FloatAffine,
@@ -11,8 +12,35 @@ from morphort.volumes import (
     read_nifti_bytes,
     validate_modalities,
 )
+from pages.common import show_data_origin
 
 VolumeInfo = tuple[FloatVolume, tuple[float, float, float], FloatAffine]
+PIPELINE_STATE_KEYS = (
+    "morphort_volumes",
+    "morphort_expert_labels",
+    "morphort_expert_masks",
+    "morphort_is_brats",
+    "morphort_brats_case_id",
+    "morphort_demo_mask",
+    "morphort_is_demo",
+    "morphort_growth_observations",
+    "morphort_growth_results",
+    "morphort_growth_model",
+    "morphort_segmentation",
+    "morphort_segmentation_steps",
+    "morphort_otsu_threshold",
+    "morphort_measurements",
+    "morphort_dice",
+    "morphort_radiotherapy_results",
+    "morphort_radiotherapy_parameters",
+    "growth_table",
+)
+
+
+def _clear_previous_exam() -> None:
+    """Évite de mélanger les résultats de deux examens successifs."""
+    for key in PIPELINE_STATE_KEYS:
+        st.session_state.pop(key, None)
 
 
 def _show_slice(volume: FloatVolume, plane: str, index: int) -> np.ndarray:
@@ -57,6 +85,7 @@ def _show_volume(volume: FloatVolume) -> None:
 
 def _load_demo() -> None:
     """Crée les séquences de démo et leur masque connu."""
+    _clear_previous_exam()
     modalities, tumor = create_synthetic_mri()
     affine = np.diag([1.0, 1.0, 1.5, 1.0])
     spacing = (1.0, 1.0, 1.5)
@@ -65,12 +94,20 @@ def _load_demo() -> None:
     }
     st.session_state["morphort_demo_mask"] = tumor
     st.session_state["morphort_is_demo"] = True
+    st.session_state["morphort_is_brats"] = False
+    synthetic_volume = float(np.count_nonzero(tumor)) * np.prod(spacing) / 1000
+    st.session_state["morphort_growth_observations"] = [
+        (0.0, synthetic_volume),
+        (14.0, synthetic_volume * 1.12),
+        (28.0, synthetic_volume * 1.28),
+    ]
 
 
 def _load_uploaded_files(
     files: dict[str, UploadedFile | None],
 ) -> None:
     """Lit les séquences choisies et confirme leur alignement spatial."""
+    _clear_previous_exam()
     loaded: dict[str, VolumeInfo] = {}
     for name, uploaded_file in files.items():
         if uploaded_file is None:
@@ -88,13 +125,30 @@ def _load_uploaded_files(
         validate_modalities(reference, candidate)
 
     st.session_state["morphort_volumes"] = loaded
-    st.session_state.pop("morphort_demo_mask", None)
+    st.session_state["morphort_is_demo"] = False
+    st.session_state["morphort_is_brats"] = False
+
+
+def _load_brats(case_id: str) -> None:
+    """Charge un cas BraTS préparé depuis les cinq fichiers vérifiés."""
+    _clear_previous_exam()
+    case = load_brats_case(case_id)
+    affine = np.eye(4, dtype=np.float64)
+    st.session_state["morphort_volumes"] = {
+        name: (volume, case.spacing_mm, affine)
+        for name, volume in case.volumes.items()
+    }
+    st.session_state["morphort_expert_labels"] = case.labels
+    st.session_state["morphort_expert_masks"] = case.expert_masks
+    st.session_state["morphort_brats_case_id"] = case.case_id
+    st.session_state["morphort_is_brats"] = True
     st.session_state["morphort_is_demo"] = False
 
 
 def afficher() -> None:
     """Charge une IRM ou une démo et affiche ses trois plans."""
     st.title("Charger l'IRM")
+    show_data_origin()
     st.write(
         "Choisissez la démonstration synthétique ou ajoutez vos fichiers NIfTI. "
         "Les fichiers sont lus en mémoire et ne sont pas enregistrés."
@@ -102,11 +156,17 @@ def afficher() -> None:
 
     source = st.radio(
         "Source des images",
-        ("Démo synthétique", "Fichiers NIfTI"),
+        ("BraTS2020", "Démo synthétique", "Mes fichiers NIfTI"),
         horizontal=True,
     )
+    case_ids = list_brats_cases() if source == "BraTS2020" else []
+    case_id = (
+        st.selectbox("Patient BraTS2020", case_ids, key="brats_case_selector")
+        if case_ids
+        else None
+    )
     files: dict[str, UploadedFile | None] = {}
-    if source == "Fichiers NIfTI":
+    if source == "Mes fichiers NIfTI":
         st.caption("Ajoutez au moins une séquence. Formats acceptés : .nii et .nii.gz.")
         for modality in MODALITY_NAMES:
             files[modality] = st.file_uploader(
@@ -116,13 +176,20 @@ def afficher() -> None:
                 max_upload_size=300,
             )
 
-    if st.button("Charger l'IRM", type="primary"):
+    if source == "BraTS2020" and not case_ids:
+        st.info("Aucun cas BraTS prêt. Préparez d'abord des patients dans data/brats/.")
+
+    if st.button("Charger l'examen", type="primary"):
         try:
-            if source == "Démo synthétique":
+            if source == "BraTS2020":
+                if case_id is None:
+                    raise ValueError("Aucun patient BraTS préparé n'est disponible.")
+                _load_brats(case_id)
+            elif source == "Démo synthétique":
                 _load_demo()
             else:
                 _load_uploaded_files(files)
-        except ValueError as error:
+        except (FileNotFoundError, ValueError) as error:
             st.error(str(error))
 
     volumes = st.session_state.get("morphort_volumes")
@@ -132,8 +199,10 @@ def afficher() -> None:
 
     modality = st.selectbox("Séquence à afficher", list(volumes))
     volume, spacing, _affine = volumes[modality]
-    source_label = (
-        "Démo entièrement synthétique"
+    source_label = "Volume réel BraTS2020" if st.session_state.get(
+        "morphort_is_brats"
+    ) else (
+        "Données synthétiques"
         if st.session_state.get("morphort_is_demo")
         else "Volume chargé depuis vos fichiers"
     )
@@ -147,4 +216,9 @@ def afficher() -> None:
         st.success(
             "Les images et le masque de démonstration sont synthétiques "
             "et ne représentent aucun patient."
+        )
+    elif st.session_state.get("morphort_is_brats"):
+        st.success(
+            "Masque expert fourni avec BraTS2020. Les résultats restent "
+            "exploratoires et ne sont pas destinés à un usage clinique."
         )

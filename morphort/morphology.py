@@ -27,8 +27,10 @@ def _validate_binary_image(image: BinaryImage) -> None:
 
 def _validate_spacing(spacing_mm: VoxelSpacing, dimensions: int) -> None:
     """Vérifie que chaque axe possède un espacement physique positif."""
-    if dimensions not in (2, 3) or len(spacing_mm) != dimensions or any(
-        not isfinite(value) or value <= 0 for value in spacing_mm
+    if (
+        dimensions not in (2, 3)
+        or len(spacing_mm) != dimensions
+        or any(not isfinite(value) or value <= 0 for value in spacing_mm)
     ):
         raise ValueError(
             "L'espacement doit contenir une valeur positive en mm par axe."
@@ -44,9 +46,7 @@ def _neighbor_offsets(dimensions: int) -> tuple[tuple[int, ...], ...]:
     )
 
 
-def structuring_element(
-    size_mm: float, spacing_mm: VoxelSpacing
-) -> BinaryImage:
+def structuring_element(size_mm: float, spacing_mm: VoxelSpacing) -> BinaryImage:
     """Construit une boule discrète de diamètre `size_mm`.
 
     Formule : B = {x : somme((x_i * s_i)^2) <= (d / 2)^2}.
@@ -80,9 +80,7 @@ def _shift(
     padded = np.pad(image, padding, constant_values=outside_value)
     slices = tuple(
         slice(before + step, before + step + length)
-        for (before, _), step, length in zip(
-            padding, offset, image.shape, strict=True
-        )
+        for (before, _), step, length in zip(padding, offset, image.shape, strict=True)
     )
     return padded[slices]
 
@@ -306,9 +304,7 @@ def watershed(
         raise ValueError("Le relief doit être une image 2D ou 3D non vide.")
     if not np.all(np.isfinite(elevation)):
         raise ValueError("Le relief doit contenir uniquement des valeurs finies.")
-    if markers.shape != elevation.shape or not np.issubdtype(
-        markers.dtype, np.integer
-    ):
+    if markers.shape != elevation.shape or not np.issubdtype(markers.dtype, np.integer):
         raise ValueError("Les marqueurs entiers doivent avoir la forme du relief.")
     if np.any(markers < 0):
         raise ValueError("Les marqueurs ne peuvent pas être négatifs.")
@@ -344,9 +340,7 @@ def watershed(
             )
             if not all(
                 0 <= coordinate < length
-                for coordinate, length in zip(
-                    neighbor, elevation.shape, strict=True
-                )
+                for coordinate, length in zip(neighbor, elevation.shape, strict=True)
             ):
                 continue
             if not allowed[neighbor] or markers[neighbor] > 0:
@@ -409,8 +403,6 @@ def granulometry(
         footprint = structuring_element(size_mm, spacing_mm)
         remaining = int(np.count_nonzero(opening(image, footprint)))
         fraction = remaining / original_size if original_size else 0.0
-        measurements.append(
-            {"size_mm": float(size_mm), "fraction_remaining": fraction}
-        )
+        measurements.append({"size_mm": float(size_mm), "fraction_remaining": fraction})
         previous_size = size_mm
     return measurements
