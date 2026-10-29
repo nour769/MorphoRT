@@ -4,7 +4,11 @@ import nibabel as nib
 import numpy as np
 import pytest
 
-from morphort.datasets import list_brats_cases, load_brats_case
+from morphort.datasets import (
+    list_brats_case_inventory,
+    list_brats_cases,
+    load_brats_case,
+)
 from scripts.prepare_brats import prepare_dataset
 
 MODALITIES = ("t1", "t1ce", "t2", "flair", "seg")
@@ -76,3 +80,30 @@ def test_load_brats_case_rejects_non_training_path(tmp_path) -> None:
     """Un identifiant de chemin n'est jamais accepté comme patient."""
     with pytest.raises(ValueError, match="invalide"):
         load_brats_case("..", tmp_path)
+
+
+def test_raw_nested_training_tree_is_discovered_and_loaded(tmp_path) -> None:
+    """Les dossiers BraTS imbriqués du téléchargement brut sont pris en charge."""
+    case_id = "BraTS20_Training_001"
+    case_directory = (
+        tmp_path
+        / "BraTS2020_TrainingData"
+        / "MICCAI_BraTS2020_TrainingData"
+        / case_id
+    )
+    _write_case(case_directory, case_id)
+
+    assert list_brats_cases(tmp_path) == [case_id]
+    assert load_brats_case(case_id, tmp_path).case_id == case_id
+
+
+def test_case_inventory_reports_missing_expert_mask(tmp_path) -> None:
+    """Un patient sans seg est explicitement exclu des métriques supervisées."""
+    case_id = "BraTS20_Training_355"
+    case_directory = tmp_path / "Training" / case_id
+    _write_case(case_directory, case_id, include_seg=False)
+
+    complete, incomplete = list_brats_case_inventory(tmp_path)
+
+    assert complete == []
+    assert incomplete == {case_id: ["seg"]}

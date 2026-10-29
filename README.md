@@ -97,10 +97,57 @@ résultats dépendent des patients réellement préparés et ne sont donc pas
 présentés ici comme des valeurs attendues fixes. Le CSV ne contient que les
 identifiants BraTS et les métriques calculées.
 
-Sur l'échantillon actuel de 20 patients, l'évaluation de base donne un Dice
-moyen de 0,6176 (écart-type 0,3307, de 0,0662 à 0,9652), un Jaccard moyen de
-0,5216 et un Hausdorff 95 moyen de 36,1005 mm. Ce relevé décrit cette exécution,
-pas un autre échantillon ni une référence clinique.
+Les paramètres sont centralisés dans `morphort/config.py`. Le réglage et
+l'évaluation historique n'utilisaient pas le même pipeline : l'évaluation de
+base utilisait Otsu (ouverture 1 mm, fermeture 1,5 mm), tandis que les moyennes
+0,7241 et 0,7748 provenaient du percentile 90 (ouverture et fermeture 1 mm),
+sur deux groupes différents de 10 patients. La page 2 avait encore les anciens
+réglages Otsu par défaut. L'évaluation, la page 2 et la page globale utilisent
+maintenant le triplet retenu par le réglage ; le CSV enregistre ses paramètres
+et la page globale signale un CSV calculé avec une autre configuration.
+
+### Analyse des cinq échecs les plus marqués
+
+Après l'évaluation et le réglage, lancez :
+
+```powershell
+python -m scripts.analyze_failures
+```
+
+Le script compare l'ouverture standard à l'ouverture par reconstruction
+uniquement sur les patients du groupe de réglage, puis garde la variante ayant
+le meilleur Dice moyen. Il écrit le tableau des cinq Dice les plus faibles et
+leurs superpositions dans `results/brats_failure_analysis.csv` et
+`results/failure_overlays/`. La page **Résultats globaux** montre ces métriques,
+les causes probables et les images. Les causes sont des hypothèses descriptives,
+pas des diagnostics.
+
+### Évaluation BraTS2020 complète avec groupe test réservé
+
+Le chemin du téléchargement brut est configuré dans `morphort/config.py`
+(`~/Downloads/brats_raw`). Après avoir extrait BraTS2020 à cet emplacement,
+lancez depuis la racine du dépôt :
+
+```powershell
+python -m scripts.evaluate_full_brats
+```
+
+Le script crée `results/split.json` une seule fois avec la graine configurée.
+Il règle les huit configurations sur 100 patients, puis calcule les Dice de la
+tumeur entière, du rehaussé, du noyau nécrotique et de l'œdème sur les patients
+test uniquement. Le CSV `results/brats_test.csv` contient les scores
+individuels ; `results/brats_test_summary.csv` contient moyenne, écart-type
+échantillonnal, médiane, minimum, maximum et IC bootstrap à 95 % de la moyenne
+(10 000 réplications). Les mêmes statistiques apparaissent dans la page
+**Résultats globaux**.
+
+Le téléchargement local contient 369 dossiers d'entraînement, mais
+`BraTS20_Training_355` ne possède pas de fichier `seg`. Il est donc exclu du
+réglage et du test supervisés, et son absence est consignée dans le split ; les
+368 patients ayant les cinq NIfTI donnent 100 patients de réglage et 268 de
+test. Le script s'arrête explicitement si la structure ou le nombre de cas
+change. Un CSV de progression permet de reprendre les cas test déjà terminés
+sans les recalculer.
 
 ### Réglage des paramètres et test indépendant
 
@@ -127,11 +174,13 @@ sections séparées. Les échecs de segmentation et les scores faibles ne sont
 pas cachés. Cette séparation rend la comparaison plus honnête, mais 10 patients
 par groupe restent un petit échantillon exploratoire, sans valeur clinique.
 
-Sur l'échantillon actuel, la sélection retient une ouverture de 1 mm, une
-fermeture de 1 mm et le seuil percentile 90. Le Dice moyen est de 0,7241 sur le
-groupe de réglage et de 0,7748 sur les 10 patients indépendants ; le minimum
-sur le groupe de réglage est 0,0000 et reste visible dans les résultats. Ces
-chiffres décrivent uniquement cette exécution.
+Avec la configuration commune, l'évaluation relancée sur les 20 cas obtient un
+Dice moyen de 0,7494 (écart-type 0,2011, min. 0,0000, max. 0,9431), un Jaccard
+moyen de 0,6289 et un Hausdorff 95 moyen de 21,0895 mm. La moyenne sur les 20
+cas n'est pas directement comparable aux moyennes de réglage et de test : ce
+sont des patients différents, et le groupe de réglage sert à sélectionner les
+paramètres. Le score nul est conservé. Ces valeurs sont exploratoires et
+dépendent de cet échantillon.
 
 ### Sous-régions morphologiques
 

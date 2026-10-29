@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from morphort.config import DEFAULT_SEGMENTATION
 from morphort.datasets import list_brats_cases, load_brats_case
 from morphort.measurements import (
     dice_coefficient,
@@ -34,12 +35,20 @@ def evaluate_brats(
         print(f"[{index}/{len(cases)}] Évaluation de {case_id}...", flush=True)
         case = load_brats_case(case_id, data_directory)
         predicted, _steps, _threshold = segment_tumor(
-            case.volumes["FLAIR"], case.spacing_mm
+            case.volumes["FLAIR"],
+            case.spacing_mm,
+            opening_radius_mm=DEFAULT_SEGMENTATION.opening_radius_mm,
+            closing_radius_mm=DEFAULT_SEGMENTATION.closing_radius_mm,
+            threshold_method=DEFAULT_SEGMENTATION.threshold_method,
+            include_diagnostic_steps=False,
         )
         expert = case.expert_masks["Tumeur entière"]
         rows.append(
             {
                 "patient": case_id,
+                "opening_radius_mm": DEFAULT_SEGMENTATION.opening_radius_mm,
+                "closing_radius_mm": DEFAULT_SEGMENTATION.closing_radius_mm,
+                "threshold_method": DEFAULT_SEGMENTATION.threshold_method,
                 "dice": dice_coefficient(predicted, expert),
                 "jaccard": jaccard_index(predicted, expert),
                 "hausdorff95_mm": hausdorff_distance_95_mm(
@@ -53,6 +62,12 @@ def evaluate_brats(
     results.to_csv(output_file, index=False)
     print(f"\nRésultats enregistrés dans : {output_file}")
     print(f"Patients évalués : {len(results)}")
+    print(
+        "Paramètres : "
+        f"ouverture={DEFAULT_SEGMENTATION.opening_radius_mm:g} mm, "
+        f"fermeture={DEFAULT_SEGMENTATION.closing_radius_mm:g} mm, "
+        f"seuil={DEFAULT_SEGMENTATION.threshold_method}"
+    )
     print("Statistiques (écart-type échantillonnal) :")
     print(
         results[["dice", "jaccard", "hausdorff95_mm"]]

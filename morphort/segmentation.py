@@ -5,6 +5,7 @@ from typing import Literal
 
 import numpy as np
 
+from morphort.config import DEFAULT_SEGMENTATION, ThresholdMethod
 from morphort.morphology import (
     BinaryImage,
     FloatImage,
@@ -12,6 +13,7 @@ from morphort.morphology import (
     fill_holes,
     largest_component,
     opening,
+    opening_by_reconstruction,
     reconstruct,
     structuring_element,
 )
@@ -25,9 +27,6 @@ class SegmentationStep:
     formula: str
     explanation: str
     image: BinaryImage | FloatImage
-
-
-ThresholdMethod = Literal["otsu", "percentile_90"]
 
 
 class EmptySegmentationError(ValueError):
@@ -104,10 +103,11 @@ def segment_tumor(
     flair: FloatImage,
     spacing_mm: tuple[float, float, float],
     *,
-    opening_radius_mm: float = 1.0,
-    closing_radius_mm: float | None = None,
-    threshold_method: ThresholdMethod = "otsu",
+    opening_radius_mm: float = DEFAULT_SEGMENTATION.opening_radius_mm,
+    closing_radius_mm: float | None = DEFAULT_SEGMENTATION.closing_radius_mm,
+    threshold_method: ThresholdMethod = DEFAULT_SEGMENTATION.threshold_method,
     threshold: float | None = None,
+    opening_method: Literal["standard", "reconstruction"] = "standard",
     include_diagnostic_steps: bool = True,
 ) -> tuple[BinaryImage, list[SegmentationStep], float]:
     """Exécute le pipeline de segmentation morphologique en 3D.
@@ -126,6 +126,10 @@ def segment_tumor(
         raise ValueError("Le rayon de fermeture doit être positif en mm.")
     if threshold_method not in ("otsu", "percentile_90"):
         raise ValueError("La méthode de seuil doit être 'otsu' ou 'percentile_90'.")
+    if opening_method not in ("standard", "reconstruction"):
+        raise ValueError(
+            "La méthode d'ouverture doit être 'standard' ou 'reconstruction'."
+        )
     if threshold is not None and not np.isfinite(threshold):
         raise ValueError("Le seuil manuel doit être une valeur finie.")
     normalized, brain = robust_normalize(flair)
@@ -149,7 +153,11 @@ def segment_tumor(
         threshold_formula = r"t=P_{90}(z(x):x\in\Omega_{\mathrm{cerveau}})"
 
     opening_element = structuring_element(2.0 * opening_radius_mm, spacing_mm)
-    opened = opening(threshold_mask, opening_element)
+    opened = (
+        opening(threshold_mask, opening_element)
+        if opening_method == "standard"
+        else opening_by_reconstruction(threshold_mask, opening_element)
+    )
     closing_element = structuring_element(2.0 * closing_radius_mm, spacing_mm)
     closed = closing(opened, closing_element)
     filled = fill_holes(closed)
@@ -192,9 +200,22 @@ def segment_tumor(
             threshold_mask,
         ),
         SegmentationStep(
-            "Ouverture",
-            r"A\circ B=(A\ominus B)\oplus B",
-            "Élimine les petits points brillants avant d'étudier les régions.",
+            (
+                "Ouverture"
+                if opening_method == "standard"
+                else "Ouverture par reconstruction"
+            ),
+            (
+                r"A\circ B=(A\ominus B)\oplus B"
+                if opening_method == "standard"
+                else r"R_A(A\ominus B)"
+            ),
+            (
+                "Élimine les petits points brillants avant d'étudier les régions."
+                if opening_method == "standard"
+                else "Élimine les petites composantes sans déformer les objets "
+                "conservés."
+            ),
             opened,
         ),
         SegmentationStep(

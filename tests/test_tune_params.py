@@ -44,6 +44,25 @@ def test_segment_tumor_supports_percentile_threshold_and_separate_radii() -> Non
     assert fast_threshold == selected_threshold
 
 
+def test_segment_tumor_can_use_opening_by_reconstruction() -> None:
+    """La variante candidate conserve la forme de sortie et expose son étape."""
+    volume = np.zeros((24, 24, 20), dtype=np.float64)
+    volume[3:21, 3:21, 2:18] = np.linspace(
+        1.0, 100.0, 18 * 18 * 16
+    ).reshape((18, 18, 16))
+
+    mask, steps, _threshold = segment_tumor(
+        volume,
+        (1.0, 1.0, 1.0),
+        opening_method="reconstruction",
+        threshold=-10.0,
+    )
+
+    assert mask.shape == volume.shape
+    assert mask.any()
+    assert steps[2].name == "Ouverture par reconstruction"
+
+
 def test_tuning_selects_parameters_only_on_ten_alternating_cases(
     tmp_path, monkeypatch, capsys
 ) -> None:

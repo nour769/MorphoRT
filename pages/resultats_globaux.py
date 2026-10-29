@@ -1,10 +1,13 @@
 """Résultats de l'évaluation globale sur les patients BraTS préparés."""
 
+import json
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import streamlit as st
+
+from morphort.config import DEFAULT_SEGMENTATION
 
 RESULTS_FILE = Path(__file__).resolve().parents[1] / "results" / "brats_eval.csv"
 METRIC_COLUMNS = ("dice", "jaccard", "hausdorff95_mm")
@@ -15,6 +18,66 @@ METRIC_LABELS = {
 }
 TUNING_GRID_FILE = RESULTS_FILE.parent / "brats_tuning_grid.csv"
 TUNING_PATIENTS_FILE = RESULTS_FILE.parent / "brats_tuning_patients.csv"
+FAILURE_ANALYSIS_FILE = RESULTS_FILE.parent / "brats_failure_analysis.csv"
+FULL_TEST_FILE = RESULTS_FILE.parent / "brats_test.csv"
+FULL_TEST_SUMMARY_FILE = RESULTS_FILE.parent / "brats_test_summary.csv"
+FULL_SPLIT_FILE = RESULTS_FILE.parent / "split.json"
+
+FULL_REGION_LABELS = {
+    "Tumeur entière": "dice_whole_tumor",
+    "Tumeur rehaussée": "dice_enhancing",
+    "Noyau nécrotique": "dice_necrotic",
+    "Œdème": "dice_edema",
+}
+
+
+def _show_full_brats_results() -> None:
+    """Affiche les distributions résumées du groupe test BraTS complet."""
+    if not FULL_TEST_SUMMARY_FILE.is_file() or not FULL_TEST_FILE.is_file():
+        return
+    st.divider()
+    st.header("Évaluation BraTS2020 complète · groupe test")
+    st.caption(
+        "Ces statistiques portent uniquement sur les patients test du split "
+        "fixe ; le groupe de réglage n'est pas inclus."
+    )
+    summary = pd.read_csv(FULL_TEST_SUMMARY_FILE)
+    test_results = pd.read_csv(FULL_TEST_FILE)
+    if "region" not in summary or not set(FULL_REGION_LABELS).issubset(
+        set(summary["region"])
+    ):
+        st.error("Le résumé de BraTS complet ne contient pas les quatre régions.")
+        return
+    st.dataframe(
+        summary.rename(
+            columns={
+                "region": "Région",
+                "patient_count": "Patients test",
+                "mean": "Moyenne",
+                "std_sample": "Écart-type",
+                "median": "Médiane",
+                "min": "Minimum",
+                "max": "Maximum",
+                "bootstrap_mean_ci95_low": "IC95 moyenne · borne basse",
+                "bootstrap_mean_ci95_high": "IC95 moyenne · borne haute",
+            }
+        ).round(4),
+        hide_index=True,
+        width="stretch",
+    )
+    if FULL_SPLIT_FILE.is_file():
+        split = json.loads(FULL_SPLIT_FILE.read_text(encoding="utf-8"))
+        st.caption(
+            f"Split graine {split['seed']} · réglage {len(split['tuning_cases'])} · "
+            f"test {len(split['test_cases'])} · exclus faute de masque : "
+            f"{split.get('excluded_cases', {})}"
+        )
+    with st.expander("Scores individuels des patients test"):
+        st.dataframe(
+            test_results.sort_values("dice_whole_tumor", kind="stable"),
+            hide_index=True,
+            width="stretch",
+        )
 
 
 def _summary_frame(values: pd.DataFrame) -> pd.DataFrame:
@@ -49,6 +112,7 @@ def afficher() -> None:
         "Évaluation de la tumeur entière par la chaîne morphologique actuelle. "
         "Les cas et scores sont affichés tels quels, y compris les résultats faibles."
     )
+    _show_full_brats_results()
     if not RESULTS_FILE.is_file():
         st.info(
             "Aucun CSV d'évaluation n'a encore été produit. Depuis la racine du "
@@ -57,7 +121,13 @@ def afficher() -> None:
         return
 
     results = pd.read_csv(RESULTS_FILE)
-    required_columns = {"patient", *METRIC_COLUMNS}
+    required_columns = {
+        "patient",
+        "opening_radius_mm",
+        "closing_radius_mm",
+        "threshold_method",
+        *METRIC_COLUMNS,
+    }
     if not required_columns.issubset(results.columns):
         st.error(
             "Le CSV ne contient pas les colonnes attendues : "
@@ -68,7 +138,31 @@ def afficher() -> None:
         st.error("Le CSV d'évaluation ne contient aucun patient.")
         return
 
+    actual_parameters = results[
+        ["opening_radius_mm", "closing_radius_mm", "threshold_method"]
+    ].drop_duplicates()
+    expected_parameters = (
+        DEFAULT_SEGMENTATION.opening_radius_mm,
+        DEFAULT_SEGMENTATION.closing_radius_mm,
+        DEFAULT_SEGMENTATION.threshold_method,
+    )
+    if (
+        len(actual_parameters) != 1
+        or tuple(actual_parameters.iloc[0]) != expected_parameters
+    ):
+        st.error(
+            "Le CSV a été calculé avec des paramètres différents de la "
+            "configuration actuelle. Relancez `python -m scripts.evaluate_brats`."
+        )
+        return
+
     st.caption(f"{len(results)} patients · résultats issus de {RESULTS_FILE.name}")
+    st.caption(
+        "Paramètres : "
+        f"ouverture {DEFAULT_SEGMENTATION.opening_radius_mm:g} mm · fermeture "
+        f"{DEFAULT_SEGMENTATION.closing_radius_mm:g} mm · seuil "
+        f"{DEFAULT_SEGMENTATION.threshold_method}"
+    )
     try:
         summary = _summary_frame(results[list(METRIC_COLUMNS)])
     except ValueError as error:
@@ -140,6 +234,40 @@ def afficher() -> None:
             "au plus élevé."
         ),
     )
+    if FAILURE_ANALYSIS_FILE.is_file():
+        failures = pd.read_csv(FAILURE_ANALYSIS_FILE)
+        if not failures.empty:
+            st.divider()
+            st.header("Analyse des cinq cas les plus difficiles")
+            st.caption(
+                "Les causes sont des hypothèses basées sur le recouvrement, les "
+                "volumes et la distance. Rouge : expert · cyan : prédiction · "
+                "jaune : recouvrement."
+            )
+            st.dataframe(
+                failures.drop(columns=["overlay"]).round(4),
+                hide_index=True,
+                width="stretch",
+            )
+            selected_failure = st.selectbox(
+                "Superposition à examiner",
+                failures["patient"].tolist(),
+                key="failure_overlay_case",
+            )
+            overlay_path = RESULTS_FILE.parent.parent / failures.loc[
+                failures["patient"] == selected_failure, "overlay"
+            ].iloc[0]
+            if overlay_path.is_file():
+                st.image(
+                    str(overlay_path),
+                    caption=f"{selected_failure} · expert et prédiction",
+                    width="stretch",
+                )
+            else:
+                st.warning(
+                    "Image de superposition manquante. Relancez "
+                    "`python -m scripts.analyze_failures`."
+                )
     if not TUNING_GRID_FILE.is_file() or not TUNING_PATIENTS_FILE.is_file():
         return
 

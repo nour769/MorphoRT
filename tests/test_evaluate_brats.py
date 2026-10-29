@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import numpy as np
 import pandas as pd
 
+from morphort.config import DEFAULT_SEGMENTATION
 from pages.resultats_globaux import _summary_frame
 from scripts import evaluate_brats
 
@@ -39,7 +40,7 @@ def test_evaluate_brats_writes_one_transparent_row_per_case(
     monkeypatch.setattr(
         evaluate_brats,
         "segment_tumor",
-        lambda *_args: (predicted, [], 0.0),
+        lambda *_args, **_kwargs: (predicted, [], 0.0),
     )
     output_file = tmp_path / "results" / "brats_eval.csv"
 
@@ -47,7 +48,24 @@ def test_evaluate_brats_writes_one_transparent_row_per_case(
 
     saved = pd.read_csv(output_file)
     assert list(saved["patient"]) == list(cases)
-    assert list(saved.columns) == ["patient", "dice", "jaccard", "hausdorff95_mm"]
+    assert list(saved.columns) == [
+        "patient",
+        "opening_radius_mm",
+        "closing_radius_mm",
+        "threshold_method",
+        "dice",
+        "jaccard",
+        "hausdorff95_mm",
+    ]
+    assert saved["opening_radius_mm"].unique().tolist() == [
+        DEFAULT_SEGMENTATION.opening_radius_mm
+    ]
+    assert saved["closing_radius_mm"].unique().tolist() == [
+        DEFAULT_SEGMENTATION.closing_radius_mm
+    ]
+    assert saved["threshold_method"].unique().tolist() == [
+        DEFAULT_SEGMENTATION.threshold_method
+    ]
     assert saved["dice"].tolist() == results["dice"].tolist()
     assert "Patients évalués : 2" in capsys.readouterr().out
 

@@ -53,17 +53,29 @@ def _case_files(case_directory: Path) -> dict[str, Path]:
 
 
 def list_brats_cases(data_directory: Path | None = None) -> list[str]:
-    """Liste les patients copiés qui possèdent les cinq fichiers NIfTI."""
+    """Liste les patients complets, y compris dans une arborescence brute."""
+    complete_cases, _incomplete_cases = list_brats_case_inventory(data_directory)
+    return complete_cases
+
+
+def list_brats_case_inventory(
+    data_directory: Path | None = None,
+) -> tuple[list[str], dict[str, list[str]]]:
+    """Sépare les patients complets des dossiers auxquels il manque des fichiers."""
     root = PROJECT_DATA if data_directory is None else Path(data_directory)
     if not root.is_dir():
-        return []
-    return sorted(
-        directory.name
-        for directory in root.iterdir()
-        if directory.is_dir()
-        and TRAINING_CASE.fullmatch(directory.name)
-        and set(_case_files(directory)) == set(MODALITIES)
-    )
+        return [], {}
+    complete: list[str] = []
+    incomplete: dict[str, list[str]] = {}
+    for directory in root.rglob("*"):
+        if not directory.is_dir() or not TRAINING_CASE.fullmatch(directory.name):
+            continue
+        missing = sorted(set(MODALITIES) - set(_case_files(directory)))
+        if missing:
+            incomplete[directory.name] = missing
+        else:
+            complete.append(directory.name)
+    return sorted(complete), dict(sorted(incomplete.items()))
 
 
 def load_brats_case(
@@ -75,7 +87,16 @@ def load_brats_case(
     root = PROJECT_DATA if data_directory is None else Path(data_directory)
     case_directory = root / case_id
     if not case_directory.is_dir():
-        raise FileNotFoundError(f"Le patient BraTS {case_id} est introuvable.")
+        matches = [
+            path
+            for path in root.rglob(case_id)
+            if path.is_dir() and path.name == case_id
+        ] if root.is_dir() else []
+        if len(matches) != 1:
+            raise FileNotFoundError(
+                f"Le patient BraTS {case_id} est introuvable ou ambigu dans {root}."
+            )
+        case_directory = matches[0]
 
     files = _case_files(case_directory)
     if set(files) != set(MODALITIES):

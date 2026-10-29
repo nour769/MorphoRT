@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from morphort.config import DEFAULT_SEGMENTATION
 from morphort.datasets import load_brats_case
 from morphort.measurements import (
     dice_coefficient,
@@ -220,19 +221,24 @@ def afficher() -> None:
         "Rayon de l'ouverture (mm)",
         min_value=0.5,
         max_value=4.0,
-        value=1.0,
+        value=DEFAULT_SEGMENTATION.opening_radius_mm,
         step=0.5,
     )
     closing_radius = st.slider(
         "Rayon de la fermeture (mm)",
         min_value=0.5,
         max_value=4.0,
-        value=1.5,
+        value=DEFAULT_SEGMENTATION.closing_radius_mm,
         step=0.5,
     )
     threshold_mode = st.radio(
         "Seuil FLAIR",
         ("Automatique (Otsu)", "Automatique (percentile 90)", "Régler manuellement"),
+        index=(
+            1
+            if DEFAULT_SEGMENTATION.threshold_method == "percentile_90"
+            else 0
+        ),
         horizontal=True,
     )
     threshold = None

@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import dataclass
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
+from morphort.config import (
+    CLOSING_RADII_MM,
+    OPENING_RADII_MM,
+    THRESHOLD_METHODS,
+    SegmentationParameters,
+)
 from morphort.datasets import list_brats_cases, load_brats_case
 from morphort.measurements import (
     dice_coefficient,
@@ -17,24 +22,11 @@ from morphort.measurements import (
 )
 from morphort.segmentation import (
     EmptySegmentationError,
-    ThresholdMethod,
     segment_tumor,
 )
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESULTS = PROJECT_ROOT / "results"
-OPENING_RADII_MM = (0.5, 1.0)
-CLOSING_RADII_MM = (0.5, 1.0)
-THRESHOLD_METHODS: tuple[ThresholdMethod, ...] = ("otsu", "percentile_90")
-
-
-@dataclass(frozen=True)
-class SegmentationParameters:
-    """Un triplet de paramètres morphologiques à comparer."""
-
-    opening_radius_mm: float
-    closing_radius_mm: float
-    threshold_method: ThresholdMethod
 
 
 def _build_grid() -> tuple[SegmentationParameters, ...]:
