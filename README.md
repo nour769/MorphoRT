@@ -79,6 +79,73 @@ BraTS2020 ne fournit qu'une acquisition par patient : toute courbe longitudinale
 est explicitement simulée à partir du volume initial réel. Les résultats restent
 pédagogiques et ne doivent pas guider des décisions cliniques.
 
+### Évaluation globale de la tumeur entière
+
+Après avoir préparé les patients dans `data/brats/`, relancez l'évaluation avec :
+
+```powershell
+python -m scripts.evaluate_brats
+```
+
+Le script segmente chaque patient complet avec les paramètres morphologiques
+actuels et produit `results/brats_eval.csv` (une ligne par patient : Dice,
+Jaccard et Hausdorff 95 en mm). Il affiche aussi, pour chaque métrique, la
+moyenne, l'écart-type échantillonnal, le minimum et le maximum. Dans Streamlit,
+la page **Résultats globaux** montre la distribution et les cas triés du Dice le
+plus faible au plus élevé ; aucun score faible n'est supprimé ou corrigé. Les
+résultats dépendent des patients réellement préparés et ne sont donc pas
+présentés ici comme des valeurs attendues fixes. Le CSV ne contient que les
+identifiants BraTS et les métriques calculées.
+
+Sur l'échantillon actuel de 20 patients, l'évaluation de base donne un Dice
+moyen de 0,6176 (écart-type 0,3307, de 0,0662 à 0,9652), un Jaccard moyen de
+0,5216 et un Hausdorff 95 moyen de 36,1005 mm. Ce relevé décrit cette exécution,
+pas un autre échantillon ni une référence clinique.
+
+### Réglage des paramètres et test indépendant
+
+Pour comparer les rayons d'ouverture et de fermeture ainsi que deux méthodes
+de seuil, lancez :
+
+```powershell
+python -m scripts.tune_params
+```
+
+Le script exige les 20 patients préparés. Il trie les identifiants et affecte
+les indices pairs (10 patients répartis dans la liste) au réglage, les indices
+impairs (10 autres) au test indépendant. Une grille fixe de huit combinaisons
+(rayons 0,5 ou 1 mm, seuil Otsu ou percentile 90 du cerveau normalisé) est
+classée sur le Dice moyen du seul groupe de réglage. Les paramètres retenus
+sont ensuite évalués une seule fois sur le groupe indépendant, sans modifier
+la sélection. Les égalités sont départagées par rayons puis nom de méthode,
+dans un ordre déterministe.
+
+Le script écrit `results/brats_tuning_grid.csv` et
+`results/brats_tuning_patients.csv`. La page **Résultats globaux** montre la
+grille, les statistiques et les scores individuels des deux groupes dans des
+sections séparées. Les échecs de segmentation et les scores faibles ne sont
+pas cachés. Cette séparation rend la comparaison plus honnête, mais 10 patients
+par groupe restent un petit échantillon exploratoire, sans valeur clinique.
+
+Sur l'échantillon actuel, la sélection retient une ouverture de 1 mm, une
+fermeture de 1 mm et le seuil percentile 90. Le Dice moyen est de 0,7241 sur le
+groupe de réglage et de 0,7748 sur les 10 patients indépendants ; le minimum
+sur le groupe de réglage est 0,0000 et reste visible dans les résultats. Ces
+chiffres décrivent uniquement cette exécution.
+
+### Sous-régions morphologiques
+
+Sur la page 2, lorsque T1ce et FLAIR sont disponibles, MorphoRT estime la tumeur
+rehaussée par seuil T1ce normalisé au cerveau, ouverture et plus grande
+composante ; le noyau nécrotique par fermeture, remplissage géodésique des
+cavités et vérification d'un T1ce sombre ; l'œdème par seuil FLAIR dans la
+tumeur entière, soustraction des autres régions et ouverture par reconstruction.
+L'onglet **Superposition et scores** compare les trois régions colorées au masque
+expert BraTS et affiche leurs Dice sans filtrer les valeurs faibles. **Voir les
+étapes** donne les formules et images intermédiaires de chaque opération.
+Les seuils d'intensité sont des heuristiques explicables, non un modèle validé ;
+un mauvais Dice est affiché et expliqué tel quel.
+
 ## Tests
 
 Installez les outils de test et exécutez pytest :
@@ -96,7 +163,7 @@ avec NumPy.
 ## Organisation
 
 - `morphort/` : morphologie, segmentation, mesures, modèles et données.
-- `pages/` : cinq étapes Streamlit.
+- `pages/` : les cinq étapes Streamlit et la page d'évaluation globale.
 - `tests/` : tests unitaires et comparaisons aux références.
 - `docs/MATHS.md` : formules expliquées.
 - `docs/RAPPORT.md` : périmètre et limites du prototype.

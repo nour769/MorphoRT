@@ -11,6 +11,7 @@ from morphort.growth import (
 )
 from morphort.measurements import (
     dice_coefficient,
+    hausdorff_distance_95_mm,
     hausdorff_distance_mm,
     jaccard_index,
     measure_mask,
@@ -64,6 +65,26 @@ def test_physical_measurements_and_dice() -> None:
     assert hausdorff_distance_mm(
         cube, np.zeros_like(cube), (1.0, 2.0, 3.0)
     ) == float("inf")
+    assert hausdorff_distance_95_mm(
+        cube, cube.copy(), (1.0, 2.0, 3.0)
+    ) == 0.0
+    assert hausdorff_distance_95_mm(
+        cube, np.zeros_like(cube), (1.0, 2.0, 3.0)
+    ) == float("inf")
+
+
+def test_hausdorff95_is_less_affected_by_one_distant_outlier() -> None:
+    """Un voxel isolé augmente le Hausdorff maximal mais pas le percentile 95."""
+    expert = np.zeros((20, 20, 20), dtype=bool)
+    expert[5:13, 5:13, 5:13] = True
+    predicted = expert.copy()
+    predicted[1, 1, 1] = True
+
+    maximum = hausdorff_distance_mm(predicted, expert, (1.0, 1.0, 1.0))
+    percentile = hausdorff_distance_95_mm(predicted, expert, (1.0, 1.0, 1.0))
+
+    assert maximum > 5.0
+    assert percentile < maximum
 
 
 def test_growth_models_fit_data_and_refuse_too_few_exams() -> None:

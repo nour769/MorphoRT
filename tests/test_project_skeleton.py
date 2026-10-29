@@ -10,6 +10,7 @@ PAGE_FILES = (
     "mesures.py",
     "croissance.py",
     "radiotherapie.py",
+    "resultats_globaux.py",
 )
 
 

@@ -1,6 +1,7 @@
 """Segmentation pédagogique par seuillage et morphologie mathématique."""
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 
@@ -8,14 +9,11 @@ from morphort.morphology import (
     BinaryImage,
     FloatImage,
     closing,
-    dilate,
-    erode,
     fill_holes,
     largest_component,
     opening,
     reconstruct,
     structuring_element,
-    watershed,
 )
 
 
@@ -27,6 +25,13 @@ class SegmentationStep:
     formula: str
     explanation: str
     image: BinaryImage | FloatImage
+
+
+ThresholdMethod = Literal["otsu", "percentile_90"]
+
+
+class EmptySegmentationError(ValueError):
+    """Aucun voxel n'a subsisté au nettoyage morphologique."""
 
 
 def otsu_threshold(values: FloatImage, bins: int = 256) -> float:
@@ -100,46 +105,68 @@ def segment_tumor(
     spacing_mm: tuple[float, float, float],
     *,
     opening_radius_mm: float = 1.0,
+    closing_radius_mm: float | None = None,
+    threshold_method: ThresholdMethod = "otsu",
     threshold: float | None = None,
+    include_diagnostic_steps: bool = True,
 ) -> tuple[BinaryImage, list[SegmentationStep], float]:
     """Exécute le pipeline de segmentation morphologique en 3D.
 
     Les étapes sont conservées pour expliquer chaque transformation à l'écran.
-    Le seuil est appliqué aux intensités normalisées et le rayon est en mm.
+    Les seuils automatiques s'appliquent aux intensités normalisées dans le
+    cerveau. Les rayons d'ouverture et de fermeture sont indépendants et en mm.
+    Sans étapes diagnostiques, les reconstructions après la plus grande
+    composante sont omises car elles restituent exactement cette composante.
     """
     if not np.isfinite(opening_radius_mm) or opening_radius_mm <= 0:
         raise ValueError("Le rayon morphologique doit être positif en mm.")
+    if closing_radius_mm is None:
+        closing_radius_mm = 1.5 * opening_radius_mm
+    if not np.isfinite(closing_radius_mm) or closing_radius_mm <= 0:
+        raise ValueError("Le rayon de fermeture doit être positif en mm.")
+    if threshold_method not in ("otsu", "percentile_90"):
+        raise ValueError("La méthode de seuil doit être 'otsu' ou 'percentile_90'.")
     if threshold is not None and not np.isfinite(threshold):
         raise ValueError("Le seuil manuel doit être une valeur finie.")
     normalized, brain = robust_normalize(flair)
-    otsu_value = otsu_threshold(normalized[brain])
-    selected_threshold = otsu_value if threshold is None else threshold
+    otsu_value = (
+        otsu_threshold(normalized[brain]) if threshold_method == "otsu" else None
+    )
+    if threshold is not None:
+        selected_threshold = threshold
+    elif threshold_method == "otsu":
+        assert otsu_value is not None
+        selected_threshold = otsu_value
+    else:
+        selected_threshold = float(np.percentile(normalized[brain], 90))
     threshold_mask = brain & (normalized > selected_threshold)
+    if threshold_method == "otsu":
+        threshold_formula = (
+            r"t^*=\arg\max_t\omega_0(t)\omega_1(t)"
+            r"\left[\mu_0(t)-\mu_1(t)\right]^2"
+        )
+    else:
+        threshold_formula = r"t=P_{90}(z(x):x\in\Omega_{\mathrm{cerveau}})"
 
     opening_element = structuring_element(2.0 * opening_radius_mm, spacing_mm)
     opened = opening(threshold_mask, opening_element)
-    closing_element = structuring_element(3.0 * opening_radius_mm, spacing_mm)
+    closing_element = structuring_element(2.0 * closing_radius_mm, spacing_mm)
     closed = closing(opened, closing_element)
     filled = fill_holes(closed)
     connected = largest_component(filled)
     if not np.any(connected):
-        raise ValueError(
+        raise EmptySegmentationError(
             "Aucune région n'a survécu au nettoyage. Vérifiez la séquence FLAIR."
         )
+    if not include_diagnostic_steps:
+        return connected, [], selected_threshold
 
     eroded = opening(connected, opening_element)
-    marker = eroded
-    if not np.any(marker):
-        marker = connected.copy()
+    marker = eroded if np.any(eroded) else connected.copy()
     reconstructed = reconstruct(marker, connected, np.ones((3, 3, 3), dtype=bool))
-
-    distance = _distance_from_boundary(reconstructed)
-    seed_threshold = float(np.percentile(distance[reconstructed], 80))
-    seeds = reconstructed & (distance >= seed_threshold)
-    if not np.any(seeds):
-        seeds = reconstructed.copy()
-    labels = watershed(-distance, seeds.astype(np.int32), reconstructed)
-    segmented = labels > 0
+    # Toutes les graines reçoivent l'étiquette 1 : le watershed ne peut donc
+    # découper cette composante en régions différentes.
+    segmented = reconstructed.copy()
 
     steps = [
         SegmentationStep(
@@ -149,10 +176,17 @@ def segment_tumor(
             normalized,
         ),
         SegmentationStep(
-            "Seuil d'Otsu",
-            r"t^*=\arg\max_t\omega_0(t)\omega_1(t)\left[\mu_0(t)-\mu_1(t)\right]^2",
+            (
+                "Seuil d'Otsu"
+                if threshold_method == "otsu"
+                else "Seuil percentile 90"
+            ),
+            threshold_formula,
             (
                 f"Seuil Otsu : {otsu_value:.2f}. "
+                f"Seuil appliqué : {selected_threshold:.2f}."
+                if threshold_method == "otsu"
+                else "Le seuil est le 90e percentile du cerveau normalisé. "
                 f"Seuil appliqué : {selected_threshold:.2f}."
             ),
             threshold_mask,
@@ -167,7 +201,10 @@ def segment_tumor(
             "Fermeture et trous",
             r"A\bullet B=(A\oplus B)\ominus B;"
             r"\quad\operatorname{trous}(A)=A^c\setminus R_{A^c}(\partial A^c)",
-            "Raccorde les petites interruptions et remplit les trous internes.",
+            (
+                f"Rayon de fermeture : {closing_radius_mm:.2f} mm. "
+                "Raccorde les petites interruptions et remplit les trous internes."
+            ),
             filled,
         ),
         SegmentationStep(
@@ -177,30 +214,13 @@ def segment_tumor(
             reconstructed,
         ),
         SegmentationStep(
-            "Watershed",
+            "Watershed · une seule composante",
             r"\operatorname{cost}(x)=\min_{\pi\in\Pi(x,\mathcal{S})}\max_{y\in\pi}f(y)",
-            "Délimite la région à partir des graines du relief de distance.",
+            (
+                "Toutes les graines portent la même étiquette ; "
+                "la région binaire ne change pas."
+            ),
             segmented,
         ),
     ]
     return segmented, steps, selected_threshold
-
-
-def _distance_from_boundary(mask: BinaryImage) -> FloatImage:
-    """Calcule la distance intérieure au bord sans opérateur morphologique."""
-    distance = np.zeros(mask.shape, dtype=np.float64)
-    frontier = mask & ~erode(mask, np.ones((3,) * mask.ndim, dtype=bool))
-    distance[frontier] = 1.0
-
-    current = frontier
-    depth = 1.0
-    footprint = np.ones((3,) * mask.ndim, dtype=bool)
-    while np.any(current):
-        expanded = dilate(current, footprint) & mask
-        next_layer = expanded & (distance == 0)
-        if not np.any(next_layer):
-            break
-        depth += 1.0
-        distance[next_layer] = depth
-        current = next_layer
-    return distance

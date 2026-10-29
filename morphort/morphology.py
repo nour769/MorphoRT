@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import deque
 from heapq import heappop, heappush
 from itertools import product
 from math import ceil, isfinite
@@ -192,12 +191,16 @@ def reconstruct(
     """
     _validate_binary_image(marker)
     _validate_binary_image(mask)
+    _validate_binary_image(footprint)
     if marker.shape != mask.shape or marker.ndim != footprint.ndim:
         raise ValueError(
             "Le marqueur, le masque et l'élément doivent être compatibles."
         )
     if np.any(marker & ~mask):
         raise ValueError("Le marqueur doit être inclus dans le masque.")
+
+    if footprint.shape == (3,) * mask.ndim and np.all(footprint):
+        return _select_connected_regions(mask, marker, largest_only=False)
 
     result = marker.copy()
     while True:
@@ -248,46 +251,118 @@ def largest_component(image: BinaryImage) -> BinaryImage:
     La connexité inclut les voisins diagonaux et fonctionne en 2D et en 3D.
     """
     _validate_binary_image(image)
-    visited = np.zeros_like(image)
-    largest: list[tuple[int, ...]] = []
-    offsets = _neighbor_offsets(image.ndim)
+    return _select_connected_regions(image, image, largest_only=True)
 
-    for start_array in np.argwhere(image):
-        start = tuple(int(value) for value in start_array)
-        if visited[start]:
-            continue
-        visited[start] = True
-        queue = deque([start])
-        component: list[tuple[int, ...]] = []
 
-        while queue:
-            point = queue.popleft()
-            component.append(point)
-            for offset in offsets:
-                neighbor = tuple(
-                    coordinate + step
-                    for coordinate, step in zip(point, offset, strict=True)
-                )
-                if (
-                    all(
-                        0 <= coordinate < length
-                        for coordinate, length in zip(
-                            neighbor, image.shape, strict=True
-                        )
-                    )
-                    and image[neighbor]
-                    and not visited[neighbor]
-                ):
-                    visited[neighbor] = True
-                    queue.append(neighbor)
-        if len(component) > len(largest):
-            largest = component
+def _select_connected_regions(
+    image: BinaryImage, seeds: BinaryImage, *, largest_only: bool
+) -> BinaryImage:
+    """Sélectionne les composantes 8/26-connexes par fusion de segments NumPy."""
+    row_length = image.shape[-1]
+    transition_width = row_length + 1
+    row_count = int(np.prod(image.shape[:-1]))
+    rows = image.reshape(row_count, row_length)
+    seed_rows = seeds.reshape(row_count, row_length)
 
-    result = np.zeros_like(image)
-    if largest:
-        locations = tuple(np.asarray(largest).T)
-        result[locations] = True
-    return result
+    padded = np.pad(rows, ((0, 0), (1, 1)), constant_values=False)
+    transitions = np.diff(padded.astype(np.int8), axis=1)
+    starts_flat = np.flatnonzero(transitions == 1)
+    ends_flat = np.flatnonzero(transitions == -1)
+    if starts_flat.size == 0:
+        return np.zeros_like(image)
+
+    run_rows = starts_flat // transition_width
+    run_starts = starts_flat % transition_width
+    run_ends = ends_flat % transition_width - 1
+    run_lengths = run_ends - run_starts + 1
+    run_offsets = np.zeros(row_count + 1, dtype=np.int64)
+    np.cumsum(np.bincount(run_rows, minlength=row_count), out=run_offsets[1:])
+
+    parents = np.arange(starts_flat.size, dtype=np.int32)
+
+    def find_root(run_id: int) -> int:
+        root = run_id
+        while parents[root] != root:
+            root = int(parents[root])
+        while parents[run_id] != run_id:
+            next_id = int(parents[run_id])
+            parents[run_id] = root
+            run_id = next_id
+        return root
+
+    def join_rows(previous_row: int, current_row: int) -> None:
+        previous_start = int(run_offsets[previous_row])
+        previous_stop = int(run_offsets[previous_row + 1])
+        current_start = int(run_offsets[current_row])
+        current_stop = int(run_offsets[current_row + 1])
+        previous_run = previous_start
+        for current_run in range(current_start, current_stop):
+            first = int(run_starts[current_run])
+            last = int(run_ends[current_run])
+            while (
+                previous_run < previous_stop
+                and run_ends[previous_run] < first - 1
+            ):
+                previous_run += 1
+            candidate = previous_run
+            while (
+                candidate < previous_stop
+                and run_starts[candidate] <= last + 1
+            ):
+                first_root = find_root(current_run)
+                second_root = find_root(candidate)
+                if first_root != second_root:
+                    parents[second_root] = first_root
+                candidate += 1
+
+    if image.ndim == 2:
+        for row in range(1, row_count):
+            join_rows(row - 1, row)
+    else:
+        columns_per_plane = image.shape[-2]
+        for row in range(row_count):
+            row_in_plane = row % columns_per_plane
+            if row_in_plane > 0:
+                join_rows(row - 1, row)
+            if row >= columns_per_plane:
+                if row_in_plane > 0:
+                    join_rows(row - columns_per_plane - 1, row)
+                join_rows(row - columns_per_plane, row)
+                if row_in_plane + 1 < columns_per_plane:
+                    join_rows(row - columns_per_plane + 1, row)
+
+    roots = np.fromiter(
+        (find_root(run_id) for run_id in range(starts_flat.size)),
+        dtype=np.int32,
+        count=starts_flat.size,
+    )
+    run_seed_prefix = np.pad(
+        np.cumsum(seed_rows, axis=1, dtype=np.int32),
+        ((0, 0), (1, 0)),
+    )
+    seed_counts = (
+        run_seed_prefix[run_rows, run_ends + 1]
+        - run_seed_prefix[run_rows, run_starts]
+    )
+    seeded_roots = np.unique(roots[seed_counts > 0])
+    if seeded_roots.size == 0:
+        return np.zeros_like(image)
+
+    if largest_only:
+        component_sizes = np.bincount(roots, weights=run_lengths)
+        selected_roots = np.array(
+            [int(np.argmax(component_sizes))], dtype=np.int32
+        )
+    else:
+        selected_roots = seeded_roots
+
+    selected_runs = np.isin(roots, selected_roots)
+    result_rows = np.zeros_like(rows)
+    for run_id in np.flatnonzero(selected_runs):
+        result_rows[
+            run_rows[run_id], run_starts[run_id] : run_ends[run_id] + 1
+        ] = True
+    return result_rows.reshape(image.shape)
 
 
 def watershed(

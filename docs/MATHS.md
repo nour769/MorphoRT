@@ -52,6 +52,14 @@ restaure les contours des composantes conservées.
 **Trous(A) = Aᶜ \ R_{Aᶜ}(bord(Aᶜ)).** On reconstruit le fond depuis le bord ;
 les régions de fond non atteintes sont les trous internes.
 
+### Sélection des composantes par segments
+
+**Rᵢⱼ = [aᵢⱼ, bᵢⱼ]** représente une suite contiguë de voxels vrais sur le dernier
+axe. Deux segments de lignes voisines sont reliés si leurs intervalles se
+touchent à un voxel près ; une fusion d'ensembles sélectionne la composante.
+Cette représentation calcule les mêmes connexités 8/26 qu'un parcours voxel
+par voxel, avec beaucoup moins de travail Python sur les volumes BraTS.
+
 ### Plus grande composante connexe
 
 **C_max = argmax_C |C|.** Parmi les ensembles de pixels voisins, on conserve
@@ -83,6 +91,38 @@ absolu médian ; il limite l'influence des intensités extrêmes.
 
 **t* = argmax_t ω₀(t) ω₁(t) [μ₀(t) − μ₁(t)]².** Le seuil est celui qui sépare
 au mieux les moyennes des deux classes de l'histogramme.
+
+### Tumeur rehaussée
+
+**R₄ = C_max((T ∩ {z_T1ce > t_Otsu}) ○ B).** Un seuil T1ce normalisé au cerveau
+est nettoyé par ouverture, puis seule sa plus grande composante est conservée.
+
+### Noyau nécrotique
+
+**R₁ = [fill_holes(R₄ • B) \ R₄] ∩ T ∩ {z_T1ce ≤ t_Otsu}.** Les cavités
+reconstruites à l'intérieur de la région rehaussée ne sont gardées que si leur
+signal T1ce est sous le seuil.
+
+### Œdème
+
+**R₂ = R_T([T ∩ {z_FLAIR ≥ P₅₀(z_FLAIR|T)}] \ (R₄ ∪ R₁)).** Le seuil FLAIR est
+calculé dans la tumeur entière ; l'ouverture par reconstruction nettoie le
+résidu sans modifier les formes conservées.
+
+### Seuil par percentile
+
+**t = P₉₀(z(x) : x ∈ cerveau).** Cette seconde méthode choisit le 90e percentile
+des intensités normalisées dans le masque anatomique.
+
+### Choix des paramètres
+
+**θ* = argmax_θ moyenne(Diceᵢ(θ)), i ∈ groupe réglage.** Le meilleur triplet
+(rayon d'ouverture, rayon de fermeture, méthode de seuil) est choisi parmi huit
+combinaisons fixes, sans utiliser le groupe de test.
+
+Les 20 identifiants BraTS triés sont répartis de façon déterministe par indices
+pairs et impairs : 10 au réglage et 10 au test indépendant. Les scores du test
+sont calculés une seule fois après le choix des paramètres.
 
 ### Volume physique
 
@@ -118,6 +158,11 @@ occupé par les deux masques.
 
 **H(P,G) = max{supₚ infᵍ d(p,g), supᵍ infₚ d(g,p)}.** La distance maximale
 entre les surfaces est calculée en millimètres avec l'espacement des voxels.
+
+### Hausdorff 95
+
+**HD95(P,G) = max(P95(d(P,G)), P95(d(G,P))).** Le percentile 95 des distances
+symétriques de surface réduit l'influence d'un point extrême isolé.
 
 Le pipeline actuel prédit uniquement la tumeur entière. Les sous-régions BraTS
 (labels 1, 2 et 4) sont affichées, mais ne reçoivent pas de score sans

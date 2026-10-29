@@ -123,6 +123,45 @@ def hausdorff_distance_mm(
     )
 
 
+def hausdorff_distance_95_mm(
+    predicted: BinaryImage,
+    expert: BinaryImage,
+    spacing_mm: tuple[float, float, float],
+) -> float:
+    """Calcule le Hausdorff percentile symétrique des surfaces en millimètres.
+
+    Formule : HD95 = max(P95(d(P,G)), P95(d(G,P))).
+    Ce percentile réduit l'influence d'un voxel isolé tout en gardant les
+    distances physiques calculées avec l'espacement des voxels.
+    """
+    _validate_matching_masks(predicted, expert)
+    if predicted.ndim != 3:
+        raise ValueError("Hausdorff 95 nécessite deux masques 3D.")
+    if len(spacing_mm) != 3 or any(
+        not np.isfinite(value) or value <= 0 for value in spacing_mm
+    ):
+        raise ValueError("L'espacement doit contenir trois valeurs positives en mm.")
+
+    footprint = np.ones((3, 3, 3), dtype=bool)
+    predicted_surface = predicted & ~erode(predicted, footprint)
+    expert_surface = expert & ~erode(expert, footprint)
+    if not predicted_surface.any() and not expert_surface.any():
+        return 0.0
+    if not predicted_surface.any() or not expert_surface.any():
+        return float("inf")
+
+    distance_to_expert = distance_transform_edt(~expert_surface, sampling=spacing_mm)
+    distance_to_predicted = distance_transform_edt(
+        ~predicted_surface, sampling=spacing_mm
+    )
+    return float(
+        max(
+            np.percentile(distance_to_expert[predicted_surface], 95),
+            np.percentile(distance_to_predicted[expert_surface], 95),
+        )
+    )
+
+
 def _validate_matching_masks(predicted: BinaryImage, expert: BinaryImage) -> None:
     """Vérifie que les masques sont booléens et de même forme."""
     if predicted.shape != expert.shape:

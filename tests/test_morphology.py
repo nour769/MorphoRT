@@ -139,6 +139,19 @@ def test_opening_by_reconstruction_and_largest_component() -> None:
     )
 
 
+@pytest.mark.parametrize("shape", [(17, 15), (9, 10, 8)])
+def test_run_length_components_match_labeled_reference(shape: tuple[int, ...]) -> None:
+    """Les composantes NumPy conservent la connexité diagonale en 2D et 3D."""
+    random = np.random.default_rng(103)
+    image = random.random(shape) > 0.78
+    labels = sk_morphology.label(image, connectivity=len(shape))
+    sizes = np.bincount(labels.ravel())
+    largest_label = int(np.argmax(sizes[1:]) + 1) if sizes.size > 1 else 0
+    expected = labels == largest_label if largest_label else np.zeros_like(image)
+
+    np.testing.assert_array_equal(largest_component(image), expected)
+
+
 def test_watershed_preserves_markers_and_stays_inside_mask() -> None:
     """Le watershed conserve les graines et n'envahit pas le fond interdit."""
     elevation = np.tile(np.array([0, 1, 2, 5, 2, 1, 0]), (7, 1)).astype(float)
